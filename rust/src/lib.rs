@@ -28,7 +28,7 @@ use zcash_client_backend::{
         scanning::ScanPriority,
         wallet::{
             create_proposed_transactions, decrypt_and_store_transaction,
-            input_selection::GreedyInputSelector, propose_shielding, propose_transfer,
+            input_selection::GreedyInputSelector, propose_transfer,
         },
         Account, AccountBalance, AccountBirthday, AccountSource, Balance, InputSource,
         SeedRelevance, WalletCommitmentTrees, WalletRead, WalletSummary, WalletWrite,
@@ -273,6 +273,10 @@ pub extern "C" fn zcashlc_clear_last_error() {
 pub unsafe extern "C" fn zcashlc_init_data_database(
     db_data: *const u8,
     db_data_len: usize,
+    transparent_key: *const u8,
+    transparent_key_len: usize,
+    extsk: *const u8,
+    extsk_len: usize,
     seed: *const u8,
     seed_len: usize,
     network_id: u32,
@@ -280,6 +284,22 @@ pub unsafe extern "C" fn zcashlc_init_data_database(
     let res = catch_panic(|| {
         let network = parse_network(network_id)?;
         let mut db_data = unsafe { wallet_db(db_data, db_data_len, network)? };
+
+        let transparent_key = if transparent_key.is_null() {
+            None
+        } else {
+            Some(Secret::new(
+                (unsafe { slice::from_raw_parts(transparent_key, transparent_key_len) }).to_vec(),
+            ))
+        };
+
+        let extsk = if extsk.is_null() {
+            None
+        } else {
+            Some(Secret::new(
+                (unsafe { slice::from_raw_parts(extsk, extsk_len) }).to_vec(),
+            ))
+        };
 
         let seed = if seed.is_null() {
             None
@@ -289,7 +309,7 @@ pub unsafe extern "C" fn zcashlc_init_data_database(
             ))
         };
 
-        match init_wallet_db(&mut db_data, seed) {
+        match init_wallet_db(&mut db_data, transparent_key, extsk, seed) {
             Ok(_) => Ok(0),
             Err(e)
                 if matches!(
@@ -501,6 +521,10 @@ pub unsafe extern "C" fn zcashlc_free_binary_key(ptr: *mut FFIBinaryKey) {
 pub unsafe extern "C" fn zcashlc_create_account(
     db_data: *const u8,
     db_data_len: usize,
+    transparent_key: *const u8,
+    transparent_key_len: usize,
+    extsk: *const u8,
+    extsk_len: usize,
     seed: *const u8,
     seed_len: usize,
     treestate: *const u8,
@@ -514,6 +538,9 @@ pub unsafe extern "C" fn zcashlc_create_account(
         let network = parse_network(network_id)?;
         let mut db_data = unsafe { wallet_db(db_data, db_data_len, network)? };
         let seed = Secret::new((unsafe { slice::from_raw_parts(seed, seed_len) }).to_vec());
+        let extsk = Secret::new((unsafe { slice::from_raw_parts(extsk, extsk_len) }).to_vec());
+        let transparent_key = Secret::new((unsafe { slice::from_raw_parts(transparent_key, transparent_key_len) }).to_vec());
+
         let treestate =
             TreeState::decode(unsafe { slice::from_raw_parts(treestate, treestate_len) })
                 .map_err(|e| anyhow!("Invalid TreeState: {}", e))?;
@@ -530,7 +557,7 @@ pub unsafe extern "C" fn zcashlc_create_account(
             })?;
 
         let (account_id, usk) = db_data
-            .create_account(&seed, &birthday)
+            .create_account(&transparent_key, &extsk, &seed, &birthday)
             .map_err(|e| anyhow!("Error while initializing accounts: {}", e))?;
 
         let account = db_data.get_account(account_id)?.expect("just created");
@@ -558,6 +585,10 @@ pub unsafe extern "C" fn zcashlc_create_account(
 pub unsafe extern "C" fn zcashlc_is_seed_relevant_to_any_derived_account(
     db_data: *const u8,
     db_data_len: usize,
+    transparent_key: *const u8,
+    transparent_key_len: usize,
+    extsk: *const u8,
+    extsk_len: usize,
     seed: *const u8,
     seed_len: usize,
     network_id: u32,
@@ -566,9 +597,11 @@ pub unsafe extern "C" fn zcashlc_is_seed_relevant_to_any_derived_account(
         let network = parse_network(network_id)?;
         let db_data = unsafe { wallet_db(db_data, db_data_len, network)? };
         let seed = Secret::new((unsafe { slice::from_raw_parts(seed, seed_len) }).to_vec());
+        let extsk = Secret::new((unsafe { slice::from_raw_parts(extsk, extsk_len) }).to_vec());
+        let transparent_key = Secret::new((unsafe { slice::from_raw_parts(transparent_key, transparent_key_len) }).to_vec());
 
         // Replicate the logic from `initWalletDb`.
-        Ok(match db_data.seed_relevance_to_derived_accounts(&seed)? {
+        Ok(match db_data.seed_relevance_to_derived_accounts(&transparent_key, &extsk, &seed)? {
             SeedRelevance::Relevant { .. } | SeedRelevance::NoAccounts => 1,
             SeedRelevance::NotRelevant | SeedRelevance::NoDerivedAccounts => 0,
         })
@@ -659,6 +692,10 @@ pub unsafe extern "C" fn zcashlc_free_keys(ptr: *mut FFIEncodedKeys) {
 ///   you are finished using it.
 #[no_mangle]
 pub unsafe extern "C" fn zcashlc_derive_spending_key(
+    transparent_key: *const u8,
+    transparent_key_len: usize,
+    extsk: *const u8,
+    extsk_len: usize,
     seed: *const u8,
     seed_len: usize,
     account: i32,
@@ -667,9 +704,11 @@ pub unsafe extern "C" fn zcashlc_derive_spending_key(
     let res = catch_panic(|| {
         let network = parse_network(network_id)?;
         let seed = unsafe { slice::from_raw_parts(seed, seed_len) };
+        let extsk = unsafe { slice::from_raw_parts(extsk, extsk_len) };
+        let transparent_key = unsafe { slice::from_raw_parts(transparent_key, transparent_key_len) };
         let account = account_id_from_i32(account)?;
 
-        UnifiedSpendingKey::from_seed(&network, seed, account)
+        UnifiedSpendingKey::from_seed(&network, transparent_key, extsk, seed, account)
             .map_err(|e| anyhow!("error generating unified spending key from seed: {:?}", e))
             .map(move |usk| {
                 let encoded = usk.to_bytes(Era::Orchard);
@@ -830,6 +869,7 @@ pub unsafe extern "C" fn zcashlc_get_next_available_address(
 ///   documentation of pointer::offset.
 /// - Call [`zcashlc_free_keys`] to free the memory associated with the returned pointer
 ///   when done using it.
+/*
 #[no_mangle]
 pub unsafe extern "C" fn zcashlc_list_transparent_receivers(
     db_data: *const u8,
@@ -862,7 +902,7 @@ pub unsafe extern "C" fn zcashlc_list_transparent_receivers(
     });
     unwrap_exc_or_null(res)
 }
-
+*/
 /// Extracts the typecodes of the receivers within the given Unified Address.
 ///
 /// Returns a pointer to a slice of typecodes. `len_ret` is set to the length of the
@@ -1311,7 +1351,7 @@ fn is_valid_unified_address(address: &str, network: &Network) -> bool {
 ///   documentation of pointer::offset.
 /// - `address` must be non-null and must point to a null-terminated UTF-8 string.
 /// - The memory referenced by `address` must not be mutated for the duration of the function call.
-#[no_mangle]
+/*#[no_mangle]
 pub unsafe extern "C" fn zcashlc_get_verified_transparent_balance(
     db_data: *const u8,
     db_data_len: usize,
@@ -1350,7 +1390,7 @@ pub unsafe extern "C" fn zcashlc_get_verified_transparent_balance(
     });
     unwrap_exc_or(res, -1)
 }
-
+*/
 /// Returns the verified transparent balance for `account`, which ignores utxos that have been
 /// received too recently and are not yet deemed spendable according to `min_confirmations`.
 ///
@@ -1364,7 +1404,7 @@ pub unsafe extern "C" fn zcashlc_get_verified_transparent_balance(
 ///   documentation of pointer::offset.
 /// - `address` must be non-null and must point to a null-terminated UTF-8 string.
 /// - The memory referenced by `address` must not be mutated for the duration of the function call.
-#[no_mangle]
+/*#[no_mangle]
 pub unsafe extern "C" fn zcashlc_get_verified_transparent_balance_for_account(
     db_data: *const u8,
     db_data_len: usize,
@@ -1423,7 +1463,7 @@ pub unsafe extern "C" fn zcashlc_get_verified_transparent_balance_for_account(
     });
     unwrap_exc_or(res, -1)
 }
-
+*/
 /// Returns the balance for `address`, including all UTXOs that we know about.
 ///
 /// # Safety
@@ -1436,7 +1476,7 @@ pub unsafe extern "C" fn zcashlc_get_verified_transparent_balance_for_account(
 ///   documentation of pointer::offset.
 /// - `address` must be non-null and must point to a null-terminated UTF-8 string.
 /// - The memory referenced by `address` must not be mutated for the duration of the function call.
-#[no_mangle]
+/*#[no_mangle]
 pub unsafe extern "C" fn zcashlc_get_total_transparent_balance(
     db_data: *const u8,
     db_data_len: usize,
@@ -1470,7 +1510,7 @@ pub unsafe extern "C" fn zcashlc_get_total_transparent_balance(
     });
     unwrap_exc_or(res, -1)
 }
-
+*/
 /// Returns the balance for `account`, including all UTXOs that we know about.
 ///
 /// # Safety
@@ -1483,7 +1523,7 @@ pub unsafe extern "C" fn zcashlc_get_total_transparent_balance(
 ///   documentation of pointer::offset.
 /// - `address` must be non-null and must point to a null-terminated UTF-8 string.
 /// - The memory referenced by `address` must not be mutated for the duration of the function call.
-#[no_mangle]
+/*#[no_mangle]
 pub unsafe extern "C" fn zcashlc_get_total_transparent_balance_for_account(
     db_data: *const u8,
     db_data_len: usize,
@@ -1522,7 +1562,7 @@ pub unsafe extern "C" fn zcashlc_get_total_transparent_balance_for_account(
     });
     unwrap_exc_or(res, -1)
 }
-
+*/
 fn parse_protocol(code: u32) -> Option<ShieldedProtocol> {
     match code {
         2 => Some(ShieldedProtocol::Sapling),
@@ -1796,7 +1836,7 @@ pub struct FfiSubtreeRoots {
 ///   documentation of `pointer::offset`.
 /// - `roots` must be non-null and initialized.
 /// - The memory referenced by `roots` must not be mutated for the duration of the function call.
-#[no_mangle]
+/*#[no_mangle]
 pub unsafe extern "C" fn zcashlc_put_sapling_subtree_roots(
     db_data: *const u8,
     db_data_len: usize,
@@ -1884,6 +1924,7 @@ pub unsafe extern "C" fn zcashlc_put_orchard_subtree_roots(
     });
     unwrap_exc_or(res, false)
 }
+*/
 
 /// Updates the wallet's view of the blockchain.
 ///
@@ -2157,7 +2198,7 @@ impl FfiWalletSummary {
             fully_scanned_height: u32::from(summary.fully_scanned_height()) as i32,
             scan_progress,
             next_sapling_subtree_index: summary.next_sapling_subtree_index(),
-            next_orchard_subtree_index: summary.next_orchard_subtree_index(),
+            next_orchard_subtree_index: 0 /*summary.next_orchard_subtree_index()*/,
         })))
     }
 
@@ -3017,6 +3058,7 @@ pub unsafe extern "C" fn zcashlc_string_free(s: *mut c_char) {
 /// - The total size `db_data_len` must be no larger than `isize::MAX`. See the safety
 ///   documentation of pointer::offset.
 /// - `shielding_threshold` a non-negative shielding threshold amount in zatoshi
+/*
 #[no_mangle]
 pub unsafe extern "C" fn zcashlc_propose_shielding(
     db_data: *const u8,
@@ -3125,6 +3167,7 @@ pub unsafe extern "C" fn zcashlc_propose_shielding(
     });
     unwrap_exc_or_null(res)
 }
+*/
 
 /// A struct that contains a pointer to, and length information for, a heap-allocated
 /// slice of `[u8; 32]` arrays.
