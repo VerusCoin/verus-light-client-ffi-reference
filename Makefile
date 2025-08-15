@@ -7,7 +7,7 @@ MAKEFLAGS += --no-builtin-rules
 
 PLATFORMS = ios-device macos ios-simulator
 IOS_DEVICE_ARCHS = aarch64-apple-ios
-IOS_SIM_ARCHS_STABLE = x86_64-apple-ios  aarch64-apple-ios-sim
+IOS_SIM_ARCHS_STABLE = x86_64-apple-ios  aarch64-apple-ios
 MACOS_ARCHS = x86_64-apple-darwin aarch64-apple-darwin
 IOS_SIM_ARCHS = $(IOS_SIM_ARCHS_STABLE)
 
@@ -16,7 +16,7 @@ STATIC_LIBS = $(shell find target -name "libzcashlc.a")
 
 install:
 	rustup toolchain add stable
-	rustup +stable target add aarch64-apple-ios x86_64-apple-ios x86_64-apple-darwin aarch64-apple-darwin aarch64-apple-ios-sim
+	rustup +stable target add aarch64-apple-ios x86_64-apple-ios x86_64-apple-darwin aarch64-apple-darwin aarch64-apple-ios
 	
 .PHONY: install
 
