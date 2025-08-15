@@ -3,7 +3,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "zcash-light-client-ffi",
+    name: "verus-light-client-ffi",
     products: [
         .library(
             name: "libzcashlc",
