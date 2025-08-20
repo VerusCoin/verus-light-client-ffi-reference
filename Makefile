@@ -64,7 +64,7 @@ products/macos/universal/libzcashlc.a: $(MACOS_ARCHS)
 
 products/ios-simulator/universal/libzcashlc.a: $(IOS_SIM_ARCHS)
 	mkdir -p $(@D)
-	lipo -create $(shell find products/ios-simulator/static-libraries -name "libzcashlc.a") -output $@
+	lipo -create $(addprefix products/ios-simulator/static-libraries/, $(addsuffix /libzcashlc.a,$(IOS_SIM_ARCHS))) -output $@
 
 products/ios-device/universal/libzcashlc.a: $(IOS_DEVICE_ARCHS)
 	mkdir -p $(@D)
