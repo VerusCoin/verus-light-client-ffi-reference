@@ -14,7 +14,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::ptr;
 use std::slice;
-use tracing::{debug, metadata::LevelFilter};
+use tracing::{debug, warn, metadata::LevelFilter};
 use tracing_subscriber::prelude::*;
 
 use zcash_address::{
@@ -784,7 +784,7 @@ pub unsafe extern "C" fn zcashlc_spending_key_to_full_viewing_key(
 
 #[no_mangle]
 pub unsafe extern "C" fn zcashlc_derive_shielded_address_from_viewing_key(
-    ufvk *const c_char,
+    ufvk: *const c_char,
     network_id: u32,
 ) -> *mut c_char {
     let res = catch_panic(|| {
@@ -807,7 +807,7 @@ pub unsafe extern "C" fn zcashlc_derive_shielded_address_from_viewing_key(
         unsafe {
             let (ua, _) = ufvk.default_address(SAPLING_ADDRESS_REQUEST)?;
             let address_str = ua.sapling().expect("No sapling receiver found in UAddr!").encode(&network);
-            CString::new(address_str).unwrap().into_raw()
+            Ok(CString::new(address_str).unwrap().into_raw())
         }
     });
     unwrap_exc_or_null(res)
