@@ -67,6 +67,11 @@ mod ffi;
 #[cfg(target_vendor = "apple")]
 mod os_log;
 
+
+// Do not generate Orchard receivers until we support receiving Orchard funds.
+const SAPLING_ADDRESS_REQUEST: UnifiedAddressRequest =
+    UnifiedAddressRequest::unsafe_new(false, true, false);
+
 fn unwrap_exc_or<T>(exc: Result<T, ()>, def: T) -> T {
     match exc {
         Ok(value) => value,
@@ -676,6 +681,7 @@ pub unsafe extern "C" fn zcashlc_free_keys(ptr: *mut FFIEncodedKeys) {
     }
 }
 
+
 /// Derives and returns a unified spending key from the given seed for the given account ID.
 ///
 /// Returns the binary encoding of the spending key. The caller should manage the memory of (and
@@ -772,6 +778,37 @@ pub unsafe extern "C" fn zcashlc_spending_key_to_full_viewing_key(
             let ufvk = usk.to_unified_full_viewing_key();
             CString::new(ufvk.encode(&network)).unwrap().into_raw()
         })
+    });
+    unwrap_exc_or_null(res)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn zcashlc_derive_shielded_address_from_viewing_key(
+    ufvk *const c_char,
+    network_id: u32,
+) -> *mut c_char {
+    let res = catch_panic(|| {
+        let network = parse_network(network_id)?;
+        let ufvk_string = unsafe { CStr::from_ptr(ufvk).to_str()? };
+        let ufvk = match UnifiedFullViewingKey::decode(&network, &ufvk_string) {
+            Ok(ufvk) => ufvk,
+            Err(e) => {
+                return Err(anyhow!(
+                    "Error while deriving viewing key from string input: {}",
+                    e,
+                ));
+            }
+        };
+
+        warn!("ufvk: {:?}", ufvk);
+
+        // Derive the default Unified Address (containing the default Sapling payment
+        // address that older SDKs used).
+        unsafe {
+            let (ua, _) = ufvk.default_address(SAPLING_ADDRESS_REQUEST)?;
+            let address_str = ua.sapling().expect("No sapling receiver found in UAddr!").encode(&network);
+            CString::new(address_str).unwrap().into_raw()
+        }
     });
     unwrap_exc_or_null(res)
 }
