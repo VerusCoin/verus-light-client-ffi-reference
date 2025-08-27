@@ -724,6 +724,29 @@ pub unsafe extern "C" fn zcashlc_derive_spending_key(
     unwrap_exc_or_null(res)
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn zcashlc_derive_shielded_spending_key(
+    seed: *const u8,
+    seed_len: usize,
+    account: i32,
+    network_id: u32,
+) -> *mut FFIBinaryKey {
+    let res = catch_panic(|| {
+        let network = parse_network(network_id)?;
+        let seed = unsafe { slice::from_raw_parts(seed, seed_len) };
+        let account = account_id_from_i32(account)?;
+
+        UnifiedSpendingKey::from_seed(&network, transparent_key, extsk, seed, account)
+            .map_err(|e| anyhow!("error generating unified spending key from seed: {:?}", e))
+            .map(move |usk| {
+                //let encoded = usk.to_bytes(Era::Orchard);
+                let encoded = usk.sapling().to_bytes();
+                Box::into_raw(Box::new(FFIBinaryKey::new(account, encoded)))
+            })
+    });
+    unwrap_exc_or_null(res)
+}
+
 /// A private utility function to reduce duplication across functions that take an USK
 /// across the FFI. `usk_ptr` should point to an array of `usk_len` bytes containing
 /// a unified spending key encoded as returned from the `zcashlc_create_account` or
