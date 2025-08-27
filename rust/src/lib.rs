@@ -736,11 +736,11 @@ pub unsafe extern "C" fn zcashlc_derive_shielded_spending_key(
         let seed = unsafe { slice::from_raw_parts(seed, seed_len) };
         let account = account_id_from_i32(account)?;
 
-        UnifiedSpendingKey::from_seed(&network, transparent_key, extsk, seed, account)
+        UnifiedSpendingKey::from_seed(&network, &[], &[], seed, account)
             .map_err(|e| anyhow!("error generating unified spending key from seed: {:?}", e))
             .map(move |usk| {
                 //let encoded = usk.to_bytes(Era::Orchard);
-                let encoded = usk.sapling().to_bytes();
+                let encoded = usk.sapling().to_bytes().to_vec();
                 Box::into_raw(Box::new(FFIBinaryKey::new(account, encoded)))
             })
     });
