@@ -14,7 +14,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::ptr;
 use std::slice;
-use tracing::{debug, warn};
+use tracing::{debug, warn, metadata::LevelFilter};
 use tracing_subscriber::prelude::*;
 
 use zcash_address::{
@@ -62,24 +62,10 @@ use zcash_primitives::{
 };
 use zcash_proofs::prover::LocalTxProver;
 
+#[cfg(target_vendor = "apple")]
+mod os_log;
+
 mod ffi;
-
-use log::LevelFilter;
-use oslog::OsLogger;
-
-#[no_mangle]
-pub extern "C" fn init_rust_logging() {
-    // Safe to call multiple times; init() will no-op after the first success
-    let _ = OsLogger::new("com.verusmobile")                // subsystem
-        .level_filter(LevelFilter::Warn)                    // choose your floor
-        .init();
-
-    // Make panics visible in Xcode, too:
-    std::panic::set_hook(Box::new(|info| {
-        log::error!("Rust panic: {info}");
-    }));
-}
-
 
 // Do not generate Orchard receivers until we support receiving Orchard funds.
 const SAPLING_ADDRESS_REQUEST: UnifiedAddressRequest =
@@ -204,12 +190,12 @@ fn account_id_from_ffi<P: Parameters>(
 #[no_mangle]
 pub extern "C" fn zcashlc_init_on_load(show_trace_logs: bool) {
     // Set up the tracing layers for the Apple OS logging framework.
-//    #[cfg(target_vendor = "apple")]
-//    let (log_layer, signpost_layer) = oslog::layers("co.electriccoin.ios", "rust");
+    #[cfg(target_vendor = "apple")]
+    let (log_layer, signpost_layer) = os_log::layers("co.electriccoin.ios", "rust");
 
     // Install the `tracing` subscriber.
     let registry = tracing_subscriber::registry();
-/*    #[cfg(target_vendor = "apple")]
+    #[cfg(target_vendor = "apple")]
     let registry = registry.with(log_layer).with(signpost_layer);
     registry
         .with(if show_trace_logs {
@@ -219,7 +205,7 @@ pub extern "C" fn zcashlc_init_on_load(show_trace_logs: bool) {
         })
         .init();
 
-*/    // Log panics instead of writing them to stderr.
+    // Log panics instead of writing them to stderr.
     log_panics::init();
 
     // Manually build the Rayon thread pool, so we can name the threads.
@@ -943,7 +929,7 @@ pub unsafe extern "C" fn zcashlc_get_next_available_address(
 ///   documentation of pointer::offset.
 /// - Call [`zcashlc_free_keys`] to free the memory associated with the returned pointer
 ///   when done using it.
-/*
+
 #[no_mangle]
 pub unsafe extern "C" fn zcashlc_list_transparent_receivers(
     db_data: *const u8,
@@ -956,7 +942,7 @@ pub unsafe extern "C" fn zcashlc_list_transparent_receivers(
         let db_data = unsafe { wallet_db(db_data, db_data_len, network)? };
         let account = account_id_from_ffi(&db_data, account_id)?;
 
-        match db_data.get_transparent_receivers(account) {
+        /*match db_data.get_transparent_receivers(account) {
             Ok(receivers) => {
                 let keys = receivers
                     .keys()
@@ -970,13 +956,13 @@ pub unsafe extern "C" fn zcashlc_list_transparent_receivers(
                     .collect::<Vec<_>>();
 
                 Ok(FFIEncodedKeys::ptr_from_vec(keys))
-            }
-            Err(e) => Err(anyhow!("Error while fetching transparent receivers: {}", e)),
-        }
+            }*/
+            Err(anyhow!("listTransparentReceivers not implemented!"))
+       // }
     });
     unwrap_exc_or_null(res)
 }
-*/
+
 /// Extracts the typecodes of the receivers within the given Unified Address.
 ///
 /// Returns a pointer to a slice of typecodes. `len_ret` is set to the length of the
@@ -1075,7 +1061,7 @@ pub unsafe extern "C" fn zcashlc_get_transparent_receiver_for_unified_address(
             Err(e) => return Err(anyhow!("Invalid Zcash address: {}", e)),
         }?;
 
-        if let Some(taddr) = ua.0.transparent() {
+        /*if let Some(taddr) = ua.0.transparent() {
             let taddr = match taddr {
                 TransparentAddress::PublicKeyHash(data) => {
                     ZcashAddress::from_transparent_p2pkh(network, *data)
@@ -1087,10 +1073,11 @@ pub unsafe extern "C" fn zcashlc_get_transparent_receiver_for_unified_address(
 
             Ok(CString::new(taddr.encode())?.into_raw())
         } else {
+        */
             Err(anyhow!(
                 "Unified Address doesn't contain a transparent receiver"
             ))
-        }
+        //}
     });
     unwrap_exc_or_null(res)
 }
@@ -1425,7 +1412,7 @@ fn is_valid_unified_address(address: &str, network: &Network) -> bool {
 ///   documentation of pointer::offset.
 /// - `address` must be non-null and must point to a null-terminated UTF-8 string.
 /// - The memory referenced by `address` must not be mutated for the duration of the function call.
-/*#[no_mangle]
+#[no_mangle]
 pub unsafe extern "C" fn zcashlc_get_verified_transparent_balance(
     db_data: *const u8,
     db_data_len: usize,
@@ -1440,7 +1427,7 @@ pub unsafe extern "C" fn zcashlc_get_verified_transparent_balance(
         let db_data = unsafe { wallet_db(db_data, db_data_len, network)? };
         let addr = unsafe { CStr::from_ptr(address).to_str()? };
         let taddr = TransparentAddress::decode(&network, addr).unwrap();
-        let amount = db_data
+/*        let amount = db_data
             .get_target_and_anchor_heights(min_confirmations)
             .map_err(|e| anyhow!("Error while fetching anchor height: {}", e))
             .and_then(|opt_anchor| {
@@ -1461,10 +1448,14 @@ pub unsafe extern "C" fn zcashlc_get_verified_transparent_balance(
             .ok_or_else(|| anyhow!("Balance overflowed MAX_MONEY."))?;
 
         Ok(Amount::from(amount).into())
+*/
+            Err(anyhow!(
+                "get_transparent_balance not implemented!"
+            ))
     });
     unwrap_exc_or(res, -1)
 }
-*/
+
 /// Returns the verified transparent balance for `account`, which ignores utxos that have been
 /// received too recently and are not yet deemed spendable according to `min_confirmations`.
 ///
@@ -1478,7 +1469,7 @@ pub unsafe extern "C" fn zcashlc_get_verified_transparent_balance(
 ///   documentation of pointer::offset.
 /// - `address` must be non-null and must point to a null-terminated UTF-8 string.
 /// - The memory referenced by `address` must not be mutated for the duration of the function call.
-/*#[no_mangle]
+#[no_mangle]
 pub unsafe extern "C" fn zcashlc_get_verified_transparent_balance_for_account(
     db_data: *const u8,
     db_data_len: usize,
@@ -1493,7 +1484,7 @@ pub unsafe extern "C" fn zcashlc_get_verified_transparent_balance_for_account(
         let db_data = unsafe { wallet_db(db_data, db_data_len, network)? };
         let account = account_id_from_ffi(&db_data, account)?;
 
-        let amount = db_data
+/*        let amount = db_data
             .get_target_and_anchor_heights(min_confirmations)
             .map_err(|e| anyhow!("Error while fetching anchor height: {}", e))
             .and_then(|opt_anchor| {
@@ -1533,11 +1524,15 @@ pub unsafe extern "C" fn zcashlc_get_verified_transparent_balance_for_account(
             .sum::<Option<NonNegativeAmount>>()
             .ok_or_else(|| anyhow!("Balance overflowed MAX_MONEY."))?;
 
-        Ok(Amount::from(amount).into())
+        Ok(Amount::from(amount).into())*/
+            Err(anyhow!(
+                "transparent balances not implemented!"
+            ))
+
     });
     unwrap_exc_or(res, -1)
 }
-*/
+
 /// Returns the balance for `address`, including all UTXOs that we know about.
 ///
 /// # Safety
@@ -1550,7 +1545,7 @@ pub unsafe extern "C" fn zcashlc_get_verified_transparent_balance_for_account(
 ///   documentation of pointer::offset.
 /// - `address` must be non-null and must point to a null-terminated UTF-8 string.
 /// - The memory referenced by `address` must not be mutated for the duration of the function call.
-/*#[no_mangle]
+#[no_mangle]
 pub unsafe extern "C" fn zcashlc_get_total_transparent_balance(
     db_data: *const u8,
     db_data_len: usize,
@@ -1562,7 +1557,7 @@ pub unsafe extern "C" fn zcashlc_get_total_transparent_balance(
         let db_data = unsafe { wallet_db(db_data, db_data_len, network)? };
         let addr = unsafe { CStr::from_ptr(address).to_str()? };
         let taddr = TransparentAddress::decode(&network, addr).unwrap();
-        let amount = db_data
+/*        let amount = db_data
             .get_target_and_anchor_heights(NonZeroU32::MIN)
             .map_err(|e| anyhow!("Error while fetching anchor height: {}", e))
             .and_then(|opt_anchor| {
@@ -1581,10 +1576,15 @@ pub unsafe extern "C" fn zcashlc_get_total_transparent_balance(
             .ok_or_else(|| anyhow!("Balance overflowed MAX_MONEY."))?;
 
         Ok(Amount::from(amount).into())
+*/
+        Err(anyhow!(   
+           "transparent balances not implemented!"
+        ))    
+
     });
     unwrap_exc_or(res, -1)
 }
-*/
+
 /// Returns the balance for `account`, including all UTXOs that we know about.
 ///
 /// # Safety
@@ -1597,7 +1597,7 @@ pub unsafe extern "C" fn zcashlc_get_total_transparent_balance(
 ///   documentation of pointer::offset.
 /// - `address` must be non-null and must point to a null-terminated UTF-8 string.
 /// - The memory referenced by `address` must not be mutated for the duration of the function call.
-/*#[no_mangle]
+#[no_mangle]
 pub unsafe extern "C" fn zcashlc_get_total_transparent_balance_for_account(
     db_data: *const u8,
     db_data_len: usize,
@@ -1609,7 +1609,7 @@ pub unsafe extern "C" fn zcashlc_get_total_transparent_balance_for_account(
         let db_data = unsafe { wallet_db(db_data, db_data_len, network)? };
         let account = account_id_from_ffi(&db_data, account)?;
 
-        let amount = db_data
+/*        let amount = db_data
             .get_target_and_anchor_heights(NonZeroU32::MIN)
             .map_err(|e| anyhow!("Error while fetching anchor height: {}", e))
             .and_then(|opt_anchor| {
@@ -1633,10 +1633,15 @@ pub unsafe extern "C" fn zcashlc_get_total_transparent_balance_for_account(
             .ok_or_else(|| anyhow!("Balance overflowed MAX_MONEY."))?;
 
         Ok(amount.into_u64() as i64)
+*/
+        Err(anyhow!(
+           "transparent balances not implemented!"
+        ))  
+
     });
     unwrap_exc_or(res, -1)
 }
-*/
+
 fn parse_protocol(code: u32) -> Option<ShieldedProtocol> {
     match code {
         2 => Some(ShieldedProtocol::Sapling),
@@ -1910,7 +1915,7 @@ pub struct FfiSubtreeRoots {
 ///   documentation of `pointer::offset`.
 /// - `roots` must be non-null and initialized.
 /// - The memory referenced by `roots` must not be mutated for the duration of the function call.
-/*#[no_mangle]
+#[no_mangle]
 pub unsafe extern "C" fn zcashlc_put_sapling_subtree_roots(
     db_data: *const u8,
     db_data_len: usize,
@@ -1922,7 +1927,7 @@ pub unsafe extern "C" fn zcashlc_put_sapling_subtree_roots(
         let network = parse_network(network_id)?;
         let mut db_data = unsafe { wallet_db(db_data, db_data_len, network)? };
 
-        let roots = unsafe { roots.as_ref().unwrap() };
+/*        let roots = unsafe { roots.as_ref().unwrap() };
         let roots_slice: &[FfiSubtreeRoot] = unsafe { slice::from_raw_parts(roots.ptr, roots.len) };
 
         let roots = roots_slice
@@ -1943,6 +1948,10 @@ pub unsafe extern "C" fn zcashlc_put_sapling_subtree_roots(
             .put_sapling_subtree_roots(start_index, &roots)
             .map(|()| true)
             .map_err(|e| anyhow!("Error while storing Sapling subtree roots: {}", e))
+*/
+        Err(anyhow!(
+           "subtree roots not implemented!"
+        ))  
     });
     unwrap_exc_or(res, false)
 }
@@ -1974,7 +1983,7 @@ pub unsafe extern "C" fn zcashlc_put_orchard_subtree_roots(
         let network = parse_network(network_id)?;
         let mut db_data = unsafe { wallet_db(db_data, db_data_len, network)? };
 
-        let roots = unsafe { roots.as_ref().unwrap() };
+/*        let roots = unsafe { roots.as_ref().unwrap() };
         let roots_slice: &[FfiSubtreeRoot] = unsafe { slice::from_raw_parts(roots.ptr, roots.len) };
 
         let roots = roots_slice
@@ -1995,10 +2004,16 @@ pub unsafe extern "C" fn zcashlc_put_orchard_subtree_roots(
             .put_orchard_subtree_roots(start_index, &roots)
             .map(|()| true)
             .map_err(|e| anyhow!("Error while storing Orchard subtree roots: {}", e))
+*/
+        Err(anyhow!(
+           "subtree roots not implemented!"
+        ))
+
+
     });
     unwrap_exc_or(res, false)
 }
-*/
+
 
 /// Updates the wallet's view of the blockchain.
 ///
@@ -3132,8 +3147,7 @@ pub unsafe extern "C" fn zcashlc_string_free(s: *mut c_char) {
 /// - The total size `db_data_len` must be no larger than `isize::MAX`. See the safety
 ///   documentation of pointer::offset.
 /// - `shielding_threshold` a non-negative shielding threshold amount in zatoshi
-/*
-#[no_mangle]
+/*#[no_mangle]
 pub unsafe extern "C" fn zcashlc_propose_shielding(
     db_data: *const u8,
     db_data_len: usize,
